@@ -1,0 +1,512 @@
+---
+title: "Práctica II"
+description: |
+  Análisis clúster
+author:
+  - name: Uxía Taboada Nieto (DNI 45147622-W)
+    affiliation: Universidad Complutense de Madrid
+    affiliation_url: 
+date: "`r Sys.Date()`"
+output:
+    distill::distill_article:
+        highlight: kate
+        colorlinks: true
+        code_folding: TRUE
+        toc: true            
+        toc_depth: 3     
+---
+
+```{r setup, include = TRUE}
+# Ajuste comunes de los chunk
+knitr::opts_chunk$set(fig.width = 9, fig.asp = 1, out.width = "100%",
+                      message = TRUE, warning = TRUE,
+                      echo = TRUE, res = 400)
+```
+
+# Instrucciones (leer antes de empezar)
+
+* Modifica dentro del documento `.Rmd` tus datos personales (nombre y DNI) ubicados en la cabecera del archivo.
+
+* Asegúrate antes de seguir editando el documento que el archivo `.Rmd` compila (Knit) correctamente y se genera el `html` correspondiente.
+
+* Los chunks creados están o vacíos o incompletos, de ahí que tengan la opción `eval = TRUE`. Una vez que edites lo que consideres debes de cambiar a `eval = TRUE` para que los chunk se ejecuten
+
+## Paquetes necesarios
+
+Necesitaremos los siguientes paquetes:
+
+* **Manejo de datos**: paquete `{tidyverse}`.
+* **Modelos**: paquete `{tidymodels}`
+* **Lectura excel**: paquete `{readxl}`
+* **Resumen numérico**: paquete `{skimr}`.
+* **Visualización de clústers y PCA**: paquete `{factoextra}` y `{FactoMineR}`
+* **Clustering divisivo**: paquete `{cluster}`
+
+```{r paquetes}
+# Borramos variables del environment
+rm(list = ls())
+library(tidyverse)
+library(tidymodels)
+library(readxl)
+library(skimr)
+library(factoextra)
+library(FactoMineR)
+library(cluster)
+```
+
+
+# Carga de datos
+
+El archivo de datos a usar será `provincias.xlsx`
+
+```{r}
+provincias <- read_xlsx(path = "C:/Users/uxiat/Desktop/MasterBD/pca_clustering/provincias.xlsx")
+```
+
+El fichero contiene **información socioeconómica de las provincias españolas**
+
+```{r}
+glimpse(provincias)
+```
+
+
+Algunas de las variables son:
+
+* `Prov`: nombre de la provincia
+* `Poblacion`: habitantes
+* `Mortalidad`, `Natalidad`: tasa de mortalidad/natalidad (en tantos por mil)
+* `IPC`: índice de precios de consumo (sobre un valor base de 100).
+* `NumEmpresas`: número de empresas.
+* `PIB`: producto interior bruto
+* `CTH`: coyuntura turística hotelera (pernoctaciones en establecimientos hoteleros)
+
+# Ejercicio 1:
+
+> Calcula la matriz de covarianzas y de correlaciones. Usa el paquete `{corrplot}` para una representación gráfica de la misma. Detalla y comenta lo que consideres para su correcta interpretación.
+
+```{r eval = TRUE}
+# Completa el código y cambia a eval = TRUE
+library(corrplot)
+cov_mat <- cov(provincias %>% select(where(is.numeric)))
+cor_mat <- cor(provincias %>% select(where(is.numeric)))
+
+corrplot(cor_mat,type = "upper", tl.col = "black",  method = "ellipse")
+```
+>  Las variables que estan representadas en azul oscuro con la elipse más pronucniada están correlacionada linearmente. 
+
+> Población con NumEmpresas, Industria, Construcción, CTH, Infor, AFS, APT, Ocupados esta correlada directamente con  PIB y TVF. 
+
+> NumEmpresas esta directamente correlada con Industria, Construcción, CTH, Infor, AFS, APT, Ocupados, PIB y TVF.
+
+> Industria está directamente correlada  con Construcción, CTH, AFS, APT, Ocupados, PIB y TVF 
+
+> Construcción está directamente correlada con CTH, Infor, AFS, APT, Ocupados, PIB y TVF.
+
+> CTH está directamente correlada con Infor, AFS, APT, Ocupados, PIB y TVF.
+
+> Infor está directamente correlada con AFS, APT, Ocupados, PIB y TVF.
+
+> AFS está directamente correlada con APT, Ocupados, PIB y TVF.
+
+> APT está directamente correladda con Ocupados, PIB y TVF.
+
+> Ocupadosestá directamenete correlada  con PIB y TVF.
+
+> PIB está directamente correlada  con TVF.
+
+
+> VARIABLES INDERECTAMENTE CORRELADAS
+
+> mortalidad está indirectamente correlada con tasa de actividad.
+
+> IPC esta indirectamente correlada con tasa de paro.
+
+
+
+# Ejercicio 2:
+
+> Estandariza los datos por rango y guardalos en provincias_scale
+
+```{r eval = TRUE}
+
+# Damos formato de dataframe a nuestros datos y sacamos de este la variable categórica del nombre de la provincia
+provincias_only_num <-
+  as.data.frame(provincias) %>%
+  select(-Prov)
+
+
+provincias_scale <-
+  provincias_df %>%
+  mutate(across(where(is.numeric),
+                rescale))
+
+```
+
+# Ejercicio 3:
+
+> Calcula con `eigen()` los autovalores y autovectores de la matriz de correlaciones e interpreta dichos resultados en relación a las componentes principales de las variables originales. Detalla todo lo que consideres
+
+```{r eval = TRUE}
+auto <- eigen(cor_mat)
+
+auto$values /sum(auto$values)
+
+auto$vectors
+```
+
+> Gracias a los autovectores podemos obtener la cantidad de información que está contenida en cada una de las nuevas componentes principales que se han calulado. 
+> En este caso Observamos que la primera componente captura un 63,702% de la varianza total. Esto implica que sumando las componentes que creamos oportunas, obtendriamos la cantidad de informacion contenida en esas componentes. Haciendo esto, podemos permitirnos prescindir de muchas de las componentes ya que tenemos mucha informacion en tan solo un par de componentes.
+
+# Ejercicio 4:
+
+> Haciendo uso de `PCA()` del paquete `{FactoMineR}` calcula todas las componentes principales. Repite de nuevo el análisis con el mínimo número de componentes necesairas para capturar al menos el 95% de la información de los datos.
+
+```{r eval = TRUE}
+# Completa el código
+pca_fit <- PCA(provincias_only_num,scale.unit = TRUE, ncp = 6, graph = TRUE)
+pca_fit$eig
+```
+> Si quisieramos capturar el menos el 95% de la información, nos bastaría coger las primeras 6 componentes, reduciendo 11 variables del sistema original.
+
+# Ejercicio 5:
+
+> Realiza las gráficas que consideres más útiles para poder interpretar adecuadamente las componentes principales obtenidas. ¿Cuál es
+la expresión para calcular la primera componente en función de las variables
+originales?
+
+
+```{r eval = TRUE}
+
+fviz_eig(pca_fit,
+         barfill = "darkolivegreen",
+         addlabels = TRUE) +
+  theme_minimal() 
+
+col <- c("#00AFBB", "#E7B800", "#FC4E07")
+fviz_pca_var(pca_fit, col.var = "cos2",
+             gradient.cols = col,
+             repel = TRUE) +
+  theme_minimal() 
+
+fviz_cos2(pca_fit, choice = "var",
+          axes = 1)
+
+fviz_pca_biplot(pca_fit,
+                palette = "jco",
+                addEllipses = TRUE,
+                label = "var",
+                col.var = "black",
+                repel = TRUE)
+
+pca_fit$svd$V
+
+```
+> expresión para calcular la primera componente en función de las variables:
+
+$$\Phi_1 = 0,2935 * Poblacion -0.1063 * Mortalidad + 0,0406 * Natalidad + 0,1099 * IPC + 0,2941 * NumEmpresas + 0,2856 * Industria + 0,2932 * Construccion + 0,293 * CTH + 0,2815 * Infor + 0,2924 * AFS + 0,2907 * APT + 0,1143  * TasaActividad - 0,0139 * TasaParo + 0,2944 * T-Ocupados + 0,2909 * PIB + 0,0178 * CANE + 0,2916 * TVF + 0,1723 * VS$$
+
+# Ejercicio 6:
+
+> ¿Cuál es la contribución de las variables originales en cada componente principal seleccionada? Proporciona las nuevas coordenadas de los datos. ¿Cuál de las variables es la que está peor explicada?
+
+```{r eval = TRUE}
+
+pca_fit$ind$coord
+
+pca_fit$ind$contrib
+
+pca_fit$var$contrib
+
+pca_fit$var$cor
+
+
+
+```
+
+> ANALISIS 1:
+> Analizando la primera componente de nuestras nuevas coordendas.
+
+> ANÁLISIS 2:
+> Con esta funcion analizamos la contribución de las variables originales sobre cada una de las componentes principales.
+> Analizando las CCAA que más contribuyen, destacan principalmente Madrid (47.2%)y Barcelona (31,3%). 
+
+> pca_fit$var$contrib Nos permite identificar que variables están mejor o peor explicadas.
+> En este caso, analizando la primera componente observamos que la variable mejor explicada es  Ocupados (8,66) seguida de  Numero de empresas (8,65), Población (8,61), Construccion (8,6) Industria , CTH (8,57), AFS (8,55),TVF (8,5), PIB (8,46) yAPT (8,45).
+>Las variables peor explicadas son Tasa de paro (0,019), CANE (0,031) y Natalidad (0,16)
+
+>pca_fit$var$cor Nos permite analizar la relación que existe entre las variables originales y las componentes principales.
+
+# Ejercicio 7:
+
+> Si tuviéramos que construir un "índice" que valore de forma conjunta el
+desarrollo económico de una provincia, ¿cómo se podría construir utilizando una combinación lineal de todas las variables? ¿A qué correspondería de lo que hemos visto? ¿Cuál sería el valor de dicho índice en Madrid? ¿Cual sería su valor en Melilla? 
+
+> Para hacer este calculo bastará sustituir en la ecuacion
+
+
+$$\Phi_1 = x * Poblacion + x * Mortalidad + x * Natalidad + x * IPC + x * NumEmpresas + x * Industria + x * Construccion + x * CTH + x * Infor + x * AFS + x * APT + x  * TasaActividad - x * TasaParo + x * T-Ocupados + x * PIB + x * CANE + x * TVF + x * VS$$
+> las x por los pesos de cada componente de cada comunidad autónoma y multiplicarlo por los pesos de cada una de las variables.
+> Como precisamente en el ejericico anterior hemos determinado que las varibales mas influyentes solo son  Ocupados, Numero de empresas , Población , Construccion Industria , CTH, AFS,,TVF, PIB yAPT  y por lo tanto los pesos serán similares (aproximadamente 0.29). A mi parecer  la ecuación nos queda un poco mas simplificada y no aafecta demasiado al calculo porque el resto de variables no tienen tanto peso. Por tanto podemos prescindir de incluir variables como CANE, tasa de paro o natalidad porque apenas tienen influencia.
+
+
+
+```{r eval = TRUE}
+#Poblacion	Mortalidad	Natalidad	IPC	NumEmpresas	Industria	Construccion	CTH	Infor	AFS	APT	TasaActividad	TasaParo	Ocupados	PIB	CANE	#TVF	VS
+
+#6454440	6.75	10.23	102.707	508612	22608	59661	158331	19058	12357	123863	63.93	16.27	2806.4	198652445	8284	2894679	162022
+id_Madrid <- 0.29 * 2806 +
+  0.29 * 508612 +
+  0.29 * 6454440 +
+  0.29 * 59661 + 
+  0.29 * 158331 +
+  0.29 * 19058 +
+  0.29 * 8284 +
+  0.29 * 198652445 +
+  0.29 * 123863 +
+  0.29 * 22608
+
+id_Melilla <- 0.29 *24.6+
+  0.29 * 4102 +
+  0.29 * 84509 +
+  0.29 * 330 + 
+  0.29 * 2358 +
+  0.29 * 40 +
+  0.29 * 75 +
+  0.29 * 1397441 +
+  0.29 * 521 +
+  0.29 * 4102 +
+  0.29 * 22608
+
+id_Madrid
+id_Melilla
+```
+
+
+# Ejercicio 8:
+
+> Calcula la matriz de distancias de los datos. Representa un mapa de calor de la matriz de datos, estandarizado y sin estandarizar, así como de la matriz de distancias. Comenta si se detectan inicialmente grupos de provincias.
+
+
+```{r eval = TRUE}
+# Completa el código
+
+library(heatmaply)
+
+heatmaply(provincias_only_num,
+          seriate = "mean",
+          row_dend_left = TRUE,
+          plot_method = "plotly")
+
+heatmaply(provincias_scale,
+          seriate = "mean",
+          row_dend_left = TRUE,
+          plot_method = "plotly")
+
+d <- dist(provincias_only_num%>% 
+            mutate(across(where(is.numeric), ~scale(.))),
+          method = "euclidean")
+d_scale <- dist(provincias_scale, method = "euclidean")
+d
+d_scale
+
+fviz_dist(d_scale, show_labels = TRUE)
+
+```
+
+> Observando el mapa de calor encontramos a priori dos posibles clusters. El primero que representa una correlacion entre Madrid Y barcelona y el segundo entre 
+# Ejercicio 9:
+
+> Realiza varios análisis de clúster jerárquico con distintos enlaces y comenta las diferencias. En cada caso visualiza el dendograma y comenta cuántos clusters recomendarías usar.
+
+
+```{r eval = TRUE}
+library(dendextend)
+
+#Agrupación Jerárquica Divisiva
+
+
+#En un agrupamiento divisivo o de arriba hacia abajo, un solo clúster de todas las muestras se divide recursivamente en dos clústeres al menos similares hasta que haya un clúster para cada observación.
+
+#En palabras sencillas, podemos decir que la agrupación jerárquica divisiva es exactamente lo opuesto a la agrupación jerárquica aglomerativa.
+
+#Esta técnica no se usa tanto que la anterior, por lo que solo daremos un resumen de cómo funciona la misma.
+
+#En la agrupación jerárquica divisiva, consideramos todos los puntos de datos como un único clúster y en cada iteración, separamos los puntos de datos del clúster que no son similares. Cada punto de datos que se separa se considera como un clúster individual. Al final, nos quedaremos con n grupos. A medida que dividimos los clústeres individuales en n clústeres, se le llama agrupamiento jerárquico divisiva.
+
+#La agrupación aglomerada es ampliamente utiliza en la industria y ese será el enfoque que explicaremos acá. La agrupación jerárquica divisiva será pan comido una vez que tengamos una vez que se entienda el tipo aglomerativo.
+
+# Clustering divisivo
+hc_diana <-diana(x = d, diss = TRUE,stand = TRUE)
+
+# Dendograma
+fviz_dend(hc_diana, k = 4,
+          cex = 0.5, 
+          # Diferentes colores a los clusters
+          color_labels_by_k = TRUE, 
+          #añade un rectángulo alrededor
+          rect = TRUE) 
+
+
+#Agrupación Jerárquica Aglomerativa:
+
+
+#En un enfoque aglomerativo o enfoque ascendente cada muestra se trata como un solo clúster y luego se fusionan, o aglomeran, sucesivamente pares de clústeres hasta que todos los clústeres se hayan fusionado en uno solo.
+
+#En esta técnica, inicialmente cada punto de datos se considera como un clúster individual. En cada iteración, los grupos similares se fusionan con otros grupos hasta que se forma un grupo o grupos K.
+
+#El algoritmo básico de algomeración es sencillo:
+
+#Calcular la matriz de proximidad
+#Dejar que cada punto de datos sea un clúster
+#Repetir: fusionar los dos clústeres más cercanos y actualizar la matriz de proximidad
+#Hasta que solo quede un único clúster
+#La operación clave es el cálculo de la proximidad de dos clústeres.
+
+
+# Cluster (ward)
+#En este método se consideran todos los clústeres y el algoritmo calcula la suma de las distancias cuadradas dentro de los clústeres y las fusiona para minimizarlas. Desde un punto de vista estadística, el proceso de aglomeración conduce a una reducción de la varianza de cada clúster resultante.
+
+#La elección del método vinculación depende totalmente cada quien y no hay un método rápido y robusto que siempre dé buenos resultados. Diferentes métodos de vinculación conducen a diferentes clústering.
+
+fviz_cluster(list(data = provincias_scale,
+                  cluster = groups),
+             ellipse.type = "convex", 
+             repel = TRUE,
+             show.clust.cent = TRUE) +
+  theme_minimal()
+
+# Cluster (ward.D2)
+ward_clust <-
+  hclust(d, method = "ward.D2")
+fviz_dend(ward_clust, k = 5,
+          cex = 0.5, 
+          color_labels_by_k = TRUE, 
+          rect = TRUE) 
+
+groups <- cutree(ward_clust, k = 5)
+
+# Cluster(centroide)
+#Encuentra el centroide del clúster 1 y el centroide del clúster 2, y luego calcula la distancia entre los dos antes de fusionarse.
+centroid_clust <-
+  hclust(d, method = "centroid")
+
+
+fviz_dend(centroid_clust, k = 2,
+          cex = 0.5,
+          color_labels_by_k = TRUE, 
+          rect = TRUE) 
+
+# cluster completo
+#Calcula la distancia máxima entre clústeres antes de la fusión. Para cada par de clústeres, el algoritmo los calcula y fusiona para minimizar la distancia máxima entre los clústeres, en otras palabras, la distancia de los elementos más lejanos.
+
+complete_clust <-
+  hclust(d, method = "complete")
+
+fviz_dend(complete_clust, k = 5,
+          cex = 0.5, 
+          # Diferentes colores a los clusters
+          color_labels_by_k = TRUE, 
+          #añade un rectángulo alrededor
+          rect = TRUE) 
+
+
+# Cluster promedio
+#Es similar al enlace completo, pero en este caso, el algoritmo utiliza la distancia media entre los pares de clústeres.
+average_clust <-
+  hclust(d, method = "average")
+# k = 3
+fviz_dend(average_clust, k = 3,
+          cex = 0.5, 
+          color_labels_by_k = TRUE, 
+          rect = TRUE) 
+
+single_clust <-
+  hclust(d, method = "single")
+
+#  Cluster Simple
+#La distancia entre dos grupos es la distancia más corta entre dos puntos de cada grupo. Calcula la distancia mínima entre los clústeres antes de la fusión. Este enlace se puede utilizar para detectar valores altos en tu conjunto de datos que pueden ser valores atípicos, ya que se fusionarán al final.
+
+fviz_dend(single_clust, k = 2,
+          cex = 0.5, 
+          color_labels_by_k = TRUE, 
+          rect = TRUE) 
+
+
+
+
+
+```
+
+
+# Ejercicio 10:
+
+> ¿Qué número óptimo de clusters nos indican los criterios Silhoutte y de Elbow? Representar los individuos agrupados según el número de clusters elegido.
+
+```{r eval = TRUE}
+# Completa el código
+
+# Criterio Silhouette
+fviz_nbclust(provincias_scale,
+             kmeans,
+             method = "silhouette") +
+  theme_minimal() 
+
+# Criterio Elbow
+fviz_nbclust(provincias_scale,
+             kmeans, method = "wss") +
+  geom_vline(xintercept = 3, linetype = 2) +
+  theme_minimal() 
+
+
+kclust <- kmeans(provincias_scale,
+                 centers = 4, iter.max = 50)
+sil <- silhouette(kclust$cluster, d)
+sil
+
+kclust <- kmeans(provincias_scale,
+                 centers = 4, iter.max = 50)
+sil <- silhouette(kclust$cluster, d)
+row.names(sil) <- row.names(provincias_scale)
+
+
+
+
+fviz_silhouette(sil, label = TRUE) +
+  theme_minimal() 
+
+# Representacion criterio de Silhouett
+
+ward_clust <-
+  hclust(d, method = "ward.D2")
+fviz_dend(ward_clust, k = 5,
+          cex = 0.5, 
+          color_labels_by_k = TRUE, 
+          rect = TRUE) +
+  labs(title = "Dendograma (ward.D2)")
+
+groups <- cutree(ward_clust, k = 5)
+```
+
+
+# Ejercicio 11:
+
+> Con el número de clusters decidido en el apartado anterior realizar un
+agrupamiento no jerárquico de k-medias. Representar los clusters formados en los planos de las Componentes principales. Interpreta los resultados y evalúa la calidad del análisis clúster. Explica las provincias que forman cada uno de los clusters y comentar cuales son las características socioeconómicas que las hacen pertenecer a dicho cluster
+
+```{r eval = TRUE}
+
+kclust <- kmeans(provincias_scale,centers = 4,iter.max = 50)
+kclust$totss
+kclust$withinss
+kclust$betweenss
+
+fviz_cluster(list(data =
+                    provincias_scale,
+                  cluster =
+                    kclust$cluster),
+             ellipse.type = "convex", 
+             repel = TRUE,
+             show.clust.cent = TRUE) +
+  theme_minimal()
+```
+
